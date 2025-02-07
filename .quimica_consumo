@@ -1,0 +1,150 @@
+library(readr)
+library(dplyr)
+library(Hmisc)
+library(readxl)
+
+#Bases a utilizar:
+
+engho2018_gastos <- read_delim("engho2018_gastos.txt", 
+                               "|", escape_double = FALSE, trim_ws = TRUE)
+codigos_quimica_consumo <- read_excel("codigos_quimica_consumo.xlsx")
+
+#Merge 
+codigos_quimica_consumo <- codigos_quimica_consumo %>% 
+  select("articulo" , "Clasificación NCM" , "subclase_desc")
+
+#x <- merge(engho2018_gastos, Códigos_de_articulos_EngHo_Quimica_de_consumo_28_9, by = "articulo",  all = TRUE)
+
+engho_quimica_consumo <- engho2018_gastos  %>%
+  left_join(codigos_quimica_consumo, by = "articulo") %>%
+  na.omit(cols("Clasificación NCM")) %>% 
+  rename( clasificacion_ncm = `Clasificación NCM`) 
+
+
+#Armo las categorias
+#cosmetica<-filter(engho_quimica_consumo, clasificacion_ncm == "Cosm?tica" )
+#higiene_personal <- filter(engho_quimica_consumo, clasificacion_ncm == "Higiene personal")
+#productos_de_limpieza <- filter(engho_quimica_consumo, clasificacion_ncm == "Productos de limpieza")
+#tot <- filter(engho_quimica_consumo, clasificacion_ncm == "Cosm?tica" |  clasificacion_ncm == "Higiene personal" |  clasificacion_ncm == "Productos de limpieza")
+
+limpieza <- filter(engho_quimica_consumo, subclase_desc == "productos de limpieza" )
+a_tocador <- filter(engho_quimica_consumo, subclase_desc == "articulos de tocador" )
+otros_descartables <- filter(engho_quimica_consumo, subclase_desc == "otros articulos descartables y otros para el hogar" )
+cuidado_personal <- filter(engho_quimica_consumo, subclase_desc == "articulos descartables ypara el cuidado personal")
+
+##para cada categoria y para el total:
+cons_limpieza <- limpieza %>% 
+  group_by(id)%>%
+  summarise(monto_limpieza=sum(monto),cantidad_limpieza=mean(cantidad))  
+cons_a_tocador <- a_tocador %>%
+  group_by(id)%>%
+  summarise(monto_a_tocador=sum(monto),cantidad_a_tocador=mean(cantidad))  
+cons_otros_descartables <- otros_descartables %>% 
+  group_by(id)%>%
+  summarise(monto_otros_descartables=sum(monto),cantidad_otros_descartables=mean(cantidad))  
+cons_cuidado_personal <- cuidado_personal %>% 
+  group_by(id)%>%
+  summarise(monto_cuidado_personal=sum(monto),cantidad_cuidado_personal=mean(cantidad))
+cons_total <- engho_quimica_consumo %>% 
+  group_by(id)%>%
+  summarise(monto_total=sum(monto),cantidad_total=mean(cantidad))  
+
+##cons_limpieza <- limpieza %>% 
+#  group_by(articulo)%>%
+#  summarise(monto=sum(monto * pondera),cantidad=mean(cantidad))  
+#write.csv2(cons_articulo, "cons_articulos.csv")
+
+#cons_articulo <- tot %>% 
+#  group_by(clasificacion_ncm)%>%
+#  summarise(monto=sum(monto * pondera),cantidad=mean(cantidad)) 
+
+
+# engho hogares
+engho2018_hogares <- read_delim("engho2018_hogares.txt", 
+                                "|", escape_double = FALSE, trim_ws = TRUE)
+
+engho2018_hogares<-merge(engho2018_hogares, cons_cuidado_personal, by="id",all.x=TRUE) %>%
+  merge(cons_a_tocador, by="id",all.x=TRUE)  %>%
+  merge(cons_limpieza, by="id",all.x=TRUE) %>%
+  merge(cons_otros_descartables, by="id",all.x=TRUE)
+
+engho2018_hogares[is.na(engho2018_hogares)] <- 0
+
+#### quimica consumo/total del consumo
+p_qui_consumo_tot<-(engho2018_hogares$monto/engho2018_hogares$gastot)*100
+p_qui_consumo_tot[is.na(p_qui_consumo_tot)]<-0
+mean(p_qui_consumo_tot) 
+
+#### cosmetica / tot quimica de consumo
+p_cosmetica_tot<-(engho2018_hogares$monto_cosmetica/engho2018_hogares$monto)*100
+p_cosmetica_tot[is.na(p_cosmetica_tot)]<-0
+mean(p_cosmetica_tot) 
+
+#### higiene personal / tot quimica de consumo
+
+p_higiene_tot<-(engho2018_hogares$monto_higiene/engho2018_hogares$monto)*100
+p_higiene_tot[is.na(p_higiene_tot)]<-0
+mean(p_higiene_tot) 
+
+#### limpieza / tot quimica de consumo
+
+p_limpieza_tot<-(engho2018_hogares$monto_limpieza/engho2018_hogares$monto)*100
+p_limpieza_tot[is.na(p_limpieza_tot)]<-0
+mean(p_limpieza_tot) 
+
+### uno las probabilidades con la base de datos 
+engho2018_hogares<-cbind(engho2018_hogares,p_qui_consumo_tot,p_limpieza_tot,p_higiene_tot,p_cosmetica_tot)
+
+##deciles
+#consumo cosmetica
+
+deci_cosmetica<-engho2018_hogares %>% 
+  group_by(dinpch_t) %>%
+  summarise(cons_cosmetica=wtd.mean(p_cosmetica_tot,weights=pondera),
+  )
+
+#consumo higiene personal
+
+deci_higiene<-engho2018_hogares %>%
+  group_by(dinpch_t) %>%
+  summarise(cons_higiene=wtd.mean(p_higiene_tot,weights=pondera),
+  )
+
+#consumo productos limpieza 
+
+deci_limpieza<-engho2018_hogares %>% 
+  group_by(dinpch_t) %>%
+  summarise(cons_limpieza=wtd.mean(p_limpieza_tot,weights=pondera),
+  )
+
+#consumo quimica de consumo
+
+deci_quimica_consumo<-engho2018_hogares %>% 
+  group_by(dinpch_t) %>%
+  summarise(cons_quimica_consumo=wtd.mean(p_qui_consumo_tot,weights=pondera),
+  )
+
+write.csv(deci_quimica_consumo,"consumo_quimica_consumo.csv")
+
+#####HASTA ACA
+
+write.csv(deci_cosmetica,"consumo_cosmetica.csv")
+write.csv(deci_limpieza,"consumo_limpieza.csv")
+write.csv(deci_higiene,"consumo_higiene.csv")
+write.csv(deci_quimica_consumo,"consumo_quimica_consumo.csv")
+
+#####Hasta la l?nea 50: para calcular monto e ingreso promedio por decil
+montos_quimica_consumo<-engho2018_hogares %>% 
+  group_by(dinpch_t) %>%
+  summarise(monto_cuidado_personal=wtd.mean(monto_cuidado_personal,weights=pondera),
+  monto_limpieza=wtd.mean(monto_limpieza,weights=pondera),
+  monto_a_tocador=wtd.mean(monto_a_tocador,weights=pondera),
+  monto_otros_descartables=wtd.mean(monto_otros_descartables,weights=pondera),
+  ingreso_t =wtd.mean(ingtoth,weights=pondera)
+  )
+
+
+write_csv2(montos_quimica_consumo,"montos_quimica_consumo.csv")
+
+
+
